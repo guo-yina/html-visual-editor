@@ -2827,11 +2827,25 @@
           }).join('\n\n');
           const sys = '你是一名资深网页视觉与前端调整助手。用户在一个可视化 HTML 编辑器里对页面元素做了编号标注，并写下每处想要的调整。请只输出 JSON，不要输出任何解释、Markdown 或代码围栏。\n规则：\n1. 只做 style（样式）、attr（属性）、text（纯文本）三类修改，不得改变 DOM 结构、不得新增或删除元素。\n2. style 使用标准 CSS 属性名与取值，如 {"kind":"style","key":"color","value":"#2563eb"}；要删除某样式则 value 用空字符串。\n3. attr 修改属性，如 {"kind":"attr","key":"class","value":"..."}。\n4. text 替换元素纯文本，key 固定为 "text"，value 为新文本。\n5. 每条修改必须归到某个标注编号 target（对应用户标注 #编号）。\n6. 仅针对用户明确要求或整体说明可合理推断的元素改动，其余保持不变。\n输出格式：{"edits":[{"target":1,"changes":[{"kind":"style","key":"font-size","value":"20px"}]}]}';
           const usr = `这是页面完整 HTML（用于理解上下文，请勿整体重写）：\n\`\`\`html\n${clean.slice(0, 120000)}\n\`\`\`\n\n整体调整说明：${globalNote || '（无，见每条标注要求）'}\n\n带编号的标注（target 即编号）：\n${annoLines}\n\n请依据每条标注的要求，输出 JSON 修改方案。`;
-          const resp = await fetch(state.ai.baseUrl.replace(/\/+$/, '') + '/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.ai.key },
-            body: JSON.stringify({ model: state.ai.model, temperature: 0.2, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] })
-          });
+          const aiUrl = state.ai.baseUrl.replace(/\/+$/, '') + '/chat/completions';
+          const aiBody = JSON.stringify({ model: state.ai.model, temperature: 0.2, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
+          const aiHeaders = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.ai.key };
+          async function tryAiFetch(url, headers, body) {
+            try {
+              const r = await fetch(url, { method: 'POST', headers, body });
+              return { resp: r, proxy: false };
+            } catch (e) {
+              if (!(e instanceof TypeError)) throw e;
+              const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+              try {
+                const r = await fetch(proxyUrl, { method: 'POST', headers, body });
+                return { resp: r, proxy: true };
+              } catch (e2) {
+                throw new Error('网络请求失败（直连和代理均不可用），请检查网络连接');
+              }
+            }
+          }
+          const { resp, proxy: usedProxy } = await tryAiFetch(aiUrl, aiHeaders, aiBody);
           if (!resp.ok) {
             const detail = await resp.text().catch(() => '');
             throw new Error('接口返回 ' + resp.status + (detail ? '：' + detail.slice(0, 200) : ''));

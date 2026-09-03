@@ -905,7 +905,7 @@
         overlay.setAttribute('data-__qwe-runtime', '1');
         const handleDirs = ['nw','n','ne','e','se','s','sw','w'];
         const handlesMarkup = handleDirs.map(dir => '<i class="__qwe-handle" data-dir="' + dir + '" data-__qwe-runtime="1"></i>').join('');
-        overlay.innerHTML = '<div id="__qwe-hover-box" data-__qwe-runtime="1"></div><div id="__qwe-multi-box" data-__qwe-runtime="1"></div><div id="__qwe-select-box" data-__qwe-runtime="1"><span id="__qwe-tag" data-__qwe-runtime="1"></span><span id="__qwe-move" data-__qwe-runtime="1" title="拖拽移动位置">✥ 移动</span><span id="__qwe-dim" data-__qwe-runtime="1"></span>' + handlesMarkup + '</div><div id="__qwe-marquee" data-__qwe-runtime="1"></div><div id="__qwe-insert-line" data-__qwe-runtime="1"></div>';
+        overlay.innerHTML = '<div id="__qwe-hover-box" data-__qwe-runtime="1"></div><div id="__qwe-multi-box" data-__qwe-runtime="1"></div><div id="__qwe-select-box" data-__qwe-runtime="1"><span id="__qwe-tag" data-__qwe-runtime="1"></span><span id="__qwe-move" data-__qwe-runtime="1" title="拖拽移动位置">✥ 移动</span><span id="__qwe-dim" data-__qwe-runtime="1"></span>' + handlesMarkup + '</div><div id="__qwe-marquee" data-__qwe-runtime="1"></div><div id="__qwe-insert-line" data-__qwe-runtime="1"></div><div id="__qwe-snap-h" data-__qwe-runtime="1"></div><div id="__qwe-snap-v" data-__qwe-runtime="1"></div>';
         document.body.appendChild(overlay);
         const hoverBox = overlay.querySelector('#__qwe-hover-box');
         const multiBox = overlay.querySelector('#__qwe-multi-box');
@@ -916,6 +916,8 @@
         const marqueeEl = overlay.querySelector('#__qwe-marquee');
         const resizeHandles = Array.from(overlay.querySelectorAll('.__qwe-handle'));
         const insertLine = overlay.querySelector('#__qwe-insert-line');
+        const snapH = overlay.querySelector('#__qwe-snap-h');
+        const snapV = overlay.querySelector('#__qwe-snap-v');
 
         function setBox(box, el) {
           if (!editEnabled || !el || !el.isConnected) { box.style.display = 'none'; return; }
@@ -930,11 +932,152 @@
         let gesture = null;
         let nudgeTimer = null;
 
+        /* ── Snap alignment guides ── */
+        const SNAP_TOL = 5;
+        function hideSnap() { snapH.style.display = 'none'; snapV.style.display = 'none'; }
+        function showSnap(hPos, vPos) {
+          if (hPos != null) { snapH.style.display = 'block'; snapH.style.top = hPos + 'px'; }
+          else snapH.style.display = 'none';
+          if (vPos != null) { snapV.style.display = 'block'; snapV.style.left = vPos + 'px'; }
+          else snapV.style.display = 'none';
+        }
+        function detectSnap(movingRect, excludeEls) {
+          const allEls = document.querySelectorAll('body *');
+          const excludeSet = new Set(excludeEls || []);
+          let bestVDist = SNAP_TOL + 1, bestV = null, bestVSnap = null;
+          let bestHDist = SNAP_TOL + 1, bestH = null, bestHSnap = null;
+          const mV = [movingRect.left, movingRect.right, movingRect.left + movingRect.width / 2];
+          const mH = [movingRect.top, movingRect.bottom, movingRect.top + movingRect.height / 2];
+          for (const el of allEls) {
+            if (excludeSet.has(el) || !isEligible(el) || el === overlay || el.closest('#__qwe-overlay-root')) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) continue;
+            const oV = [r.left, r.right, r.left + r.width / 2];
+            const oH = [r.top, r.bottom, r.top + r.height / 2];
+            for (let i = 0; i < 3; i++) {
+              for (let j = 0; j < 3; j++) {
+                const dv = Math.abs(mV[i] - oV[j]);
+                if (dv < bestVDist) { bestVDist = dv; bestV = i; bestVSnap = oV[j]; }
+                const dh = Math.abs(mH[i] - oH[j]);
+                if (dh < bestHDist) { bestHDist = dh; bestH = i; bestHSnap = oH[j]; }
+              }
+            }
+          }
+          let adjustX = 0, adjustY = 0, showV = null, showH = null;
+          if (bestVDist <= SNAP_TOL) {
+            adjustX = bestVSnap - mV[bestV];
+            showV = bestVSnap;
+          }
+          if (bestHDist <= SNAP_TOL) {
+            adjustY = bestHSnap - mH[bestH];
+            showH = bestHSnap;
+          }
+          if (showV != null || showH != null) showSnap(showH, showV);
+          else hideSnap();
+          return { adjustX, adjustY };
+        }
+
+        /* ── SVG connected line tracking ── */
+        const LINE_THRESH = 30;
+        function distPtRect(px, py, r) {
+          const cx = Math.max(r.left, Math.min(px, r.right));
+          const cy = Math.max(r.top, Math.min(py, r.bottom));
+          return Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+        }
+        function getLineEndpoints(el) {
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'line') {
+            return { x1: parseFloat(el.getAttribute('x1')) || 0, y1: parseFloat(el.getAttribute('y1')) || 0,
+                     x2: parseFloat(el.getAttribute('x2')) || 0, y2: parseFloat(el.getAttribute('y2')) || 0, type: 'line' };
+          }
+          if (tag === 'polyline' || tag === 'polygon') {
+            const pts = (el.getAttribute('points') || '').trim().split(/[\s,]+/).map(Number);
+            if (pts.length < 4) return null;
+            return { x1: pts[0], y1: pts[1], x2: pts[pts.length - 2], y2: pts[pts.length - 1], type: tag, points: pts.slice() };
+          }
+          if (tag === 'path') {
+            const d = el.getAttribute('d') || '';
+            const nums = d.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+            if (!nums || nums.length < 4) return null;
+            const n = nums.map(Number);
+            return { x1: n[0], y1: n[1], x2: n[n.length - 2], y2: n[n.length - 1], type: 'path', d: d };
+          }
+          return null;
+        }
+        function findConnectedLines(nodeEl) {
+          if (!nodeEl) return [];
+          const svgParent = nodeEl.closest('svg');
+          if (!svgParent) return [];
+          const nodeR = nodeEl.getBoundingClientRect();
+          const results = [];
+          const lineTags = svgParent.querySelectorAll('line, path, polyline, polygon');
+          for (const lineEl of lineTags) {
+            if (lineEl === nodeEl || lineEl.closest('[data-__qwe-runtime]')) continue;
+            const ep = getLineEndpoints(lineEl);
+            if (!ep) continue;
+            const svgRect = svgParent.getBoundingClientRect();
+            const s1x = svgRect.left + ep.x1, s1y = svgRect.top + ep.y1;
+            const s2x = svgRect.left + ep.x2, s2y = svgRect.top + ep.y2;
+            const d1 = distPtRect(s1x, s1y, nodeR);
+            const d2 = distPtRect(s2x, s2y, nodeR);
+            if (d1 <= LINE_THRESH || d2 <= LINE_THRESH) {
+              results.push({ el: lineEl, ep: ep, connectStart: d1 <= LINE_THRESH, connectEnd: d2 <= LINE_THRESH });
+            }
+          }
+          return results;
+        }
+        function findConnectionsForTargets(targets) {
+          const all = [];
+          targets.forEach(t => { const c = findConnectedLines(t); if (c.length) all.push(...c); });
+          return all;
+        }
+        function updateConnectedLines(connections, dx, dy) {
+          connections.forEach(c => {
+            if (!c.el.isConnected) return;
+            const ep = c.ep;
+            if (ep.type === 'line') {
+              if (c.connectStart) { c.el.setAttribute('x1', String(ep.x1 + dx)); c.el.setAttribute('y1', String(ep.y1 + dy)); }
+              if (c.connectEnd) { c.el.setAttribute('x2', String(ep.x2 + dx)); c.el.setAttribute('y2', String(ep.y2 + dy)); }
+            } else if (ep.type === 'polyline' || ep.type === 'polygon') {
+              const pts = ep.points.slice();
+              if (c.connectStart) { pts[0] += dx; pts[1] += dy; }
+              if (c.connectEnd) { pts[pts.length - 2] += dx; pts[pts.length - 1] += dy; }
+              let s = '';
+              for (let i = 0; i < pts.length; i += 2) s += pts[i] + ',' + pts[i + 1] + ' ';
+              c.el.setAttribute('points', s.trim());
+            } else if (ep.type === 'path') {
+              const d = ep.d;
+              const nums = d.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+              if (!nums) return;
+              const n = nums.map(Number);
+              if (c.connectStart) { n[0] += dx; n[1] += dy; }
+              if (c.connectEnd) { n[n.length - 2] += dx; n[n.length - 1] += dy; }
+              let idx = 0;
+              const newD = d.replace(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g, () => String(Math.round(n[idx++]) * 100 / 100));
+              c.el.setAttribute('d', newD);
+            }
+            // Update cached endpoints for next frame
+            const newEp = getLineEndpoints(c.el);
+            if (newEp) c.ep = newEp;
+            // Re-check connectivity after update
+            const svgParent = c.el.closest('svg');
+            if (svgParent) {
+              const svgRect = svgParent.getBoundingClientRect();
+              const nep = c.ep;
+              const s1x = svgRect.left + nep.x1, s1y = svgRect.top + nep.y1;
+              const s2x = svgRect.left + nep.x2, s2y = svgRect.top + nep.y2;
+              c.connectStart = distPtRect(s1x, s1y, selected.getBoundingClientRect()) <= LINE_THRESH * 2;
+              c.connectEnd = distPtRect(s2x, s2y, selected.getBoundingClientRect()) <= LINE_THRESH * 2;
+            }
+          });
+        }
+
         function nudgeSelected(dx, dy) {
           if (!editEnabled || activeEdit) return;
           const targets = selectedAll();
           if (!targets.length) return;
           if (observer) observer.disconnect();
+          const nudgeConnections = findConnectionsForTargets(targets);
           targets.forEach(el => {
             const svg = svgGeom(el);
             if (svg.kind !== 'none') {
@@ -945,6 +1088,7 @@
               el.style.setProperty('top', (parsePx(el.style.top) + dy) + 'px');
             }
           });
+          if (nudgeConnections.length && (dx || dy)) updateConnectedLines(nudgeConnections, dx, dy);
           refreshOverlays();
           clearTimeout(nudgeTimer);
           nudgeTimer = setTimeout(() => {
@@ -1153,7 +1297,8 @@
             baseLeft: isGroup ? groupRect.left : (isSvgTarget ? svg.ax : parsePx(selected.style.left)),
             baseTop: isGroup ? groupRect.top : (isSvgTarget ? svg.ay : parsePx(selected.style.top)),
             svg: isGroup ? null : (isSvgTarget ? svg : null),
-            group: isGroup ? { rect: groupRect, items: baseItems } : null
+            group: isGroup ? { rect: groupRect, items: baseItems } : null,
+            connections: kind === 'move' ? findConnectionsForTargets(targets) : []
           };
           selectBox.classList.add('__qwe-gesturing');
           if (observer) observer.disconnect();
@@ -1171,8 +1316,22 @@
           const isSvg = !!gesture.svg;
           const isGroup = !!gesture.group;
           if (gesture.kind === 'move') {
-            const nl = gesture.baseLeft + dx;
-            const nt = gesture.baseTop + dy;
+            let nl = gesture.baseLeft + dx;
+            let nt = gesture.baseTop + dy;
+            // Snap detection: check alignment with nearby elements
+            const snapRect = { left: nl, top: nt, width: gesture.startW, height: gesture.startH };
+            const targets = gesture.group ? gesture.group.items.map(i => i.el) : [selected];
+            const snap = detectSnap(snapRect, targets);
+            nl += snap.adjustX;
+            nt += snap.adjustY;
+            // Connected line tracking: compute delta from last frame
+            const cdx = nl - (gesture._lastLeft != null ? gesture._lastLeft : gesture.baseLeft);
+            const cdy = nt - (gesture._lastTop != null ? gesture._lastTop : gesture.baseTop);
+            gesture._lastLeft = nl;
+            gesture._lastTop = nt;
+            if (gesture.connections && gesture.connections.length && (cdx || cdy)) {
+              updateConnectedLines(gesture.connections, cdx, cdy);
+            }
             if (isGroup) {
               gesture.group.items.forEach(item => {
                 const edx = item.rectLeft - gesture.group.rect.left;
@@ -1275,6 +1434,7 @@
           const kind = gesture ? gesture.kind : '';
           gesture = null;
           selectBox.classList.remove('__qwe-gesturing');
+          hideSnap();
           ensureRuntimeIds();
           observe();
           const targets = selectedAll();
@@ -1936,6 +2096,9 @@
         .__qwe-anno-mark.__qwe-anno-region{border:2px dashed rgb(219 39 119)!important;background:rgb(244 114 182 / .08)!important}
         .__qwe-anno-num[data-__qwe-runtime]{position:absolute!important;left:-9px!important;top:-9px!important;min-width:20px!important;height:20px!important;padding:0 5px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;border-radius:10px!important;background:rgb(219 39 119)!important;color:#fff!important;font:700 11px/20px ui-monospace,SFMono-Regular,Consolas,monospace!important;box-shadow:0 1px 4px rgba(15,23,42,.3)!important}
         html.__qwe-annotating,html.__qwe-annotating *{cursor:crosshair!important}
+        #__qwe-snap-h[data-__qwe-runtime],#__qwe-snap-v[data-__qwe-runtime]{display:none;position:fixed!important;pointer-events:none!important;z-index:2147483646!important}
+        #__qwe-snap-h[data-__qwe-runtime]{left:0!important;right:0!important;height:0!important;border-top:1px dashed rgb(244 114 182)!important}
+        #__qwe-snap-v[data-__qwe-runtime]{top:0!important;bottom:0!important;width:0!important;border-left:1px dashed rgb(244 114 182)!important}
       `;
 
       function buildSrcdoc(html) {

@@ -3538,7 +3538,7 @@
         }
         els.shortcutModal.hidden = !open;
         els.shortcutModal.classList.toggle('open', open);
-        if (open) requestAnimationFrame(() => els.shortcutClose.focus());
+        if (open) els.shortcutClose.focus();
         else if (shortcutReturnFocus && shortcutReturnFocus.isConnected) {
           shortcutReturnFocus.focus();
           shortcutReturnFocus = null;
@@ -4028,17 +4028,29 @@
         toast('完整源码已应用到画布。', 'success');
       });
 
+      const CM_CDN_HOSTS = ['https://esm.sh/', 'https://esm.run/', 'https://cdn.jsdelivr.net/npm/'];
+      function cmCdnUrls(host) {
+        const suffix = host === 'https://cdn.jsdelivr.net/npm/' ? '/+esm' : '';
+        return [
+          host + 'codemirror@6.0.1' + suffix,
+          host + '@codemirror/lang-html@6.4.9' + suffix,
+          host + '@codemirror/theme-one-dark@6.1.2' + suffix
+        ];
+      }
+      async function loadCmModules() {
+        const attempts = CM_CDN_HOSTS.map(host => {
+          const [cmUrl, langUrl, themeUrl] = cmCdnUrls(host);
+          return Promise.all([import(cmUrl), import(langUrl), import(themeUrl)]);
+        });
+        const overallTimeout = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('CodeMirror CDN 加载超时')), 8000);
+        });
+        return Promise.race([Promise.any(attempts), overallTimeout]);
+      }
+
       async function initCodeMirror() {
         try {
-          const moduleLoad = Promise.all([
-            import('https://esm.sh/codemirror@6.0.1'),
-            import('https://esm.sh/@codemirror/lang-html@6.4.9'),
-            import('https://esm.sh/@codemirror/theme-one-dark@6.1.2')
-          ]);
-          const moduleTimeout = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('CodeMirror CDN 加载超时')), 1800);
-          });
-          const [{ EditorView, basicSetup }, { html }, { oneDark }] = await Promise.race([moduleLoad, moduleTimeout]);
+          const [{ EditorView, basicSetup }, { html }, { oneDark }] = await loadCmModules();
           state.cmView = new EditorView({
             doc: state.currentHtml,
             extensions: [
@@ -4496,7 +4508,7 @@
         els.aiSettingsModal.hidden = !open;
         els.aiSettingsModal.classList.toggle('open', open);
         if (open) {
-          requestAnimationFrame(() => els.aiKeyInput.focus());
+          els.aiKeyInput.focus();
         } else if (aiSettingsReturnFocus && aiSettingsReturnFocus.isConnected) {
           aiSettingsReturnFocus.focus();
           aiSettingsReturnFocus = null;
@@ -4587,7 +4599,7 @@
           try {
             resp = await fetch(aiUrl, { method: 'POST', headers: aiHeaders, body: aiBody });
           } catch (error) {
-            throw new Error('无法直连接口，请检查 Base URL、网络或接口 CORS 设置');
+            throw new Error('请求未能发出（' + (error && error.message ? error.message : 'network') + '）。当前运行环境可能拦截对外请求（内置预览、代理或浏览器插件常见）：请用独立浏览器打开本页重试，并检查设置里的 Base URL 与网络。');
           }
           if (!resp.ok) {
             const detail = await resp.text().catch(() => '');
@@ -4661,7 +4673,7 @@
           try {
             resp = await fetch(aiUrl, { method: 'POST', headers: aiHeaders, body: aiBody });
           } catch (error) {
-            throw new Error('无法直连接口，请检查 Base URL、网络或接口 CORS 设置');
+            throw new Error('请求未能发出（' + (error && error.message ? error.message : 'network') + '）。当前运行环境可能拦截对外请求（内置预览、代理或浏览器插件常见）：请用独立浏览器打开本页重试，并检查设置里的 Base URL 与网络。');
           }
           if (!resp.ok) { const detail = await resp.text().catch(() => ''); throw new Error('接口返回 ' + resp.status + (detail ? '：' + detail.slice(0, 200) : '')); }
           const data = await resp.json();

@@ -540,6 +540,12 @@
     .ai-remember { display: flex; align-items: flex-start; gap: 7px; font-size: calc(10.5px * var(--seed-type-scale)); line-height: 1.5; color: var(--muted); }
     .ai-remember input { margin-top: 2px; }
     .modal-note { margin: 0; font-size: calc(10px * var(--seed-type-scale)); line-height: 1.5; color: var(--faint); }
+    .modal-hint { font-size: calc(10px * var(--seed-type-scale)); line-height: 1.5; color: var(--muted); }
+    .ai-test-row { display: flex; align-items: center; gap: 10px; }
+    .ai-test-status { flex: 1; min-width: 0; font-size: calc(10.5px * var(--seed-type-scale)); line-height: 1.5; color: var(--muted); }
+    .ai-test-status.ok { color: var(--seed-primary); }
+    .ai-test-status.bad { color: rgb(190 62 62); }
+    .ai-test-status.busy { color: var(--faint); }
     .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
 
     @media (max-width: 1440px) {
@@ -1019,8 +1025,13 @@
         </label>
         <label class="modal-field">
           <span class="modal-label">接口地址（Base URL）</span>
-          <input class="modal-input" id="aiBaseUrlInput" type="text" autocomplete="off" placeholder="https://dashscope.aliyun.com/compatible-mode/v1">
+          <input class="modal-input" id="aiBaseUrlInput" type="text" autocomplete="off" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1">
+          <span class="modal-hint">正确域名是 dashscope.aliyuncs.com（结尾带 cs）。写成 dashscope.aliyun.com 会被跳转拦截，表现为“请求未能发出”。</span>
         </label>
+        <div class="ai-test-row">
+          <button class="ai-secondary" id="aiTestBtn" type="button">测试连接</button>
+          <span class="ai-test-status" id="aiTestStatus" role="status" aria-live="polite">填好 Key 后点一下，先确认接口通不通。</span>
+        </div>
         <label class="ai-remember">
           <input id="aiRememberKey" type="checkbox" disabled>
           <span>为保护密钥，Key 仅保留在当前页面会话，刷新后自动清空。</span>
@@ -1097,7 +1108,7 @@
         'formatBtn','applySourceBtn','closeSourceBtn','sourceSplit','openBtn','saveBtn',
         'saveAsBtn','undoBtn','redoBtn','duplicateBtn','deleteBtn','moveUpBtn','moveDownBtn','selectToolBtn','editModeBtn','fullscreenBtn',
         'aiBtn','aiDock','aiModelStatus','aiSettingsBtn','aiCloseBtn','aiHint','aiAnnoList','aiInstruction','aiClearBtn',
-        'aiRunBtn','aiSettingsModal','aiKeyInput','aiModelSelect','aiBaseUrlInput','aiRememberKey','aiSettingsSave','aiSettingsClose',
+        'aiRunBtn','aiSettingsModal','aiKeyInput','aiModelSelect','aiBaseUrlInput','aiRememberKey','aiSettingsSave','aiSettingsClose','aiTestBtn','aiTestStatus',
         'zoomBar','zoomOutBtn','zoomInBtn','zoomVal','zoomFitBtn','zoomResetBtn','zoomPresets',
         'textToolbar','ttFont','ttSize','ttBold','ttItalic','ttUnderline','ttStrike','ttColor','ttColorBar','ttAlignLeft','ttAlignCenter','ttAlignRight','ttLineHeight','ttHeading',
         'ctxMenu','shortcutModal','shortcutGrid','shortcutClose','layerTree','layerMeta','railTabComponents','railTabLayers','railPaneComponents','railPaneLayers','painterBtn','aiSuggestBtn','aiSuggestPanel'
@@ -1134,7 +1145,7 @@
         annoNotes: {},
         annotateMode: false,
         selectTool: false,
-        ai: { key: '', model: 'qwen-plus', baseUrl: 'https://dashscope.aliyun.com/compatible-mode/v1', remember: false, busy: false },
+        ai: { key: '', model: 'qwen-plus', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', remember: false, busy: false },
         zoom: 1,
         zoomPresetsOpen: false,
         panX: 0,
@@ -4472,7 +4483,56 @@
         els.fullscreenBtn.setAttribute('aria-pressed', String(Boolean(document.fullscreenElement)));
       });
 
-      const DEFAULT_AI_BASE = 'https://dashscope.aliyun.com/compatible-mode/v1';
+      const DEFAULT_AI_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+
+      // dashscope.aliyun.com 会 302 跳到 www.aliyun.com/notfound，且响应不带 CORS 头，
+      // 浏览器侧只会看到一句 Failed to fetch。这里统一纠正为可用的 aliyuncs.com 域名。
+      function normalizeAiBaseUrl(raw) {
+        let url = String(raw == null ? '' : raw).trim();
+        if (!url) return DEFAULT_AI_BASE;
+        if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+        url = url.replace(/\/+$/, '');
+        try {
+          const parsed = new URL(url);
+          if (/^dashscope\.aliyun\.com$/i.test(parsed.hostname)) {
+            parsed.hostname = 'dashscope.aliyuncs.com';
+            url = parsed.toString();
+          }
+        } catch (error) { /* 非法地址保留原值，交给报错说明提示用户 */ }
+        return url.replace(/\/+$/, '');
+      }
+
+      function aiEndpoint(base) {
+        return normalizeAiBaseUrl(base) + '/chat/completions';
+      }
+
+      function aiHostOf(base) {
+        try { return new URL(normalizeAiBaseUrl(base)).hostname; } catch (error) { return ''; }
+      }
+
+      function aiRawHostOf(raw) {
+        const value = String(raw == null ? '' : raw).trim();
+        try { return new URL(/^https?:\/\//i.test(value) ? value : 'https://' + value).hostname; } catch (error) { return ''; }
+      }
+
+      function describeAiNetworkFailure(error, base) {
+        const message = error && error.message ? String(error.message) : 'network';
+        const normalized = normalizeAiBaseUrl(base);
+        const hints = [];
+        if (/^dashscope\.aliyun\.com$/i.test(aiRawHostOf(base))) hints.push('接口域名是 dashscope.aliyun.com，会被跳转拦截，请改成 dashscope.aliyuncs.com');
+        if (location.protocol === 'https:' && /^http:\/\//i.test(normalized)) hints.push('当前页面是 HTTPS，而接口地址是 HTTP，浏览器会按混合内容拦截');
+        if (!aiHostOf(base)) hints.push('接口地址不是合法 URL，请检查设置里的 Base URL');
+        hints.push('也可能是内置预览、代理或浏览器插件拦截了对外请求，可用独立浏览器打开本页重试');
+        return '请求未能发出（' + message + '）。' + hints.join('；') + '。';
+      }
+
+      function describeAiHttpStatus(status, detail) {
+        const tail = detail ? '：' + String(detail).slice(0, 200) : '';
+        if (status === 401 || status === 403) {
+          return '接口返回 ' + status + '，Key 未通过校验' + tail + '。请到阿里云百炼控制台确认 Key，或在设置里点“测试连接”复查。';
+        }
+        return '接口返回 ' + status + tail;
+      }
 
       function loadAiConfig() {
         state.ai.remember = false;
@@ -4486,8 +4546,9 @@
 
       function updateAiModelStatus() {
         const ok = Boolean(state.ai.key);
-        els.aiModelStatus.textContent = ok ? (state.ai.model + ' 已连接') : '未配置千问 Key';
+        els.aiModelStatus.textContent = ok ? (state.ai.model + ' · 已填 Key') : '未配置千问 Key';
         els.aiModelStatus.classList.toggle('ready', ok);
+        els.aiModelStatus.title = ok ? '这里只表示 Key 已填写；接口是否真的通，请在千问设置里点“测试连接”验证。' : '打开千问设置填写 DashScope API Key。';
       }
 
       function updateAiRunButton() {
@@ -4497,6 +4558,13 @@
       }
 
       let aiSettingsReturnFocus = null;
+      function setAiTestStatus(text, tone) {
+        if (!els.aiTestStatus) return;
+        els.aiTestStatus.textContent = text;
+        els.aiTestStatus.classList.remove('ok', 'bad', 'busy');
+        if (tone) els.aiTestStatus.classList.add(tone);
+      }
+
       function openAiSettings(open) {
         if (open) {
           aiSettingsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -4504,6 +4572,7 @@
           els.aiModelSelect.value = state.ai.model;
           els.aiBaseUrlInput.value = state.ai.baseUrl;
           els.aiRememberKey.checked = state.ai.remember;
+          setAiTestStatus('填好 Key 后点一下，先确认接口通不通。', '');
         }
         els.aiSettingsModal.hidden = !open;
         els.aiSettingsModal.classList.toggle('open', open);
@@ -4516,15 +4585,66 @@
       }
 
       function saveAiSettings() {
+        const rawBase = els.aiBaseUrlInput.value.trim();
+        const correctedBase = normalizeAiBaseUrl(rawBase);
+        const domainFixed = Boolean(rawBase) && /^dashscope\.aliyun\.com$/i.test(aiRawHostOf(rawBase));
         state.ai.key = els.aiKeyInput.value.trim();
         state.ai.model = els.aiModelSelect.value || 'qwen-plus';
-        state.ai.baseUrl = (els.aiBaseUrlInput.value.trim() || DEFAULT_AI_BASE).replace(/\/+$/, '');
+        state.ai.baseUrl = correctedBase;
         state.ai.remember = els.aiRememberKey.checked;
         persistAiConfig();
         updateAiModelStatus();
         updateAiRunButton();
         openAiSettings(false);
-        toast(state.ai.key ? '千问设置已保存' : '已清空千问 Key', 'success');
+        if (domainFixed) toast('接口域名已自动纠正为 dashscope.aliyuncs.com', 'success');
+        else toast(state.ai.key ? '千问设置已保存' : '已清空千问 Key', 'success');
+      }
+
+      let aiTestController = null;
+      async function testAiConnection() {
+        const key = els.aiKeyInput.value.trim();
+        const model = els.aiModelSelect.value || 'qwen-plus';
+        const base = normalizeAiBaseUrl(els.aiBaseUrlInput.value);
+        els.aiBaseUrlInput.value = base;
+        if (!key) {
+          setAiTestStatus('先填 API Key 再测试。', 'bad');
+          els.aiKeyInput.focus();
+          return;
+        }
+        if (aiTestController) aiTestController.abort();
+        aiTestController = new AbortController();
+        els.aiTestBtn.disabled = true;
+        setAiTestStatus('正在请求 ' + base + ' …', 'busy');
+        const startedAt = Date.now();
+        try {
+          const resp = await fetch(base + '/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+            signal: aiTestController.signal
+          });
+          const ms = Date.now() - startedAt;
+          if (resp.ok) {
+            setAiTestStatus('通了：接口可达且 Key 有效（' + resp.status + '，' + ms + 'ms）。', 'ok');
+            return;
+          }
+          let detail = '';
+          try {
+            const data = await resp.json();
+            detail = (data && ((data.error && (data.error.message || data.error.code)) || data.message || data.code)) || '';
+          } catch (error) { /* 响应体不是 JSON 时忽略 */ }
+          if (resp.status === 401 || resp.status === 403) {
+            setAiTestStatus('接口可达，但 Key 没通过校验（' + resp.status + '）。' + (detail ? ' ' + detail : '请到阿里云百炼控制台确认 Key 是否有效。'), 'bad');
+          } else {
+            setAiTestStatus('接口可达，返回 ' + resp.status + '。' + (detail ? ' ' + detail : '请检查模型名与 Base URL。'), 'bad');
+          }
+        } catch (error) {
+          if (error && error.name === 'AbortError') { setAiTestStatus('已取消测试。', ''); return; }
+          setAiTestStatus(describeAiNetworkFailure(error, base), 'bad');
+        } finally {
+          els.aiTestBtn.disabled = false;
+          aiTestController = null;
+        }
       }
 
       function setAiDock(open) {
@@ -4592,18 +4712,18 @@
           }).join('\n\n');
           const sys = '你是一名资深网页视觉与前端调整助手。用户在一个可视化 HTML 编辑器里对页面元素做了编号标注，并写下每处想要的调整。请只输出 JSON，不要输出任何解释、Markdown 或代码围栏。\n规则：\n1. 只做 style（样式）、attr（属性）、text（纯文本）三类修改，不得改变 DOM 结构、不得新增或删除元素。\n2. style 使用标准 CSS 属性名与取值，如 {"kind":"style","key":"color","value":"rgb(37 99 235)"}；要删除某样式则 value 用空字符串。\n3. attr 修改属性，如 {"kind":"attr","key":"class","value":"..."}。\n4. text 替换元素纯文本，key 固定为 "text"，value 为新文本。\n5. 每条修改必须归到某个标注编号 target（对应用户标注 #编号）。\n6. 仅针对用户明确要求或整体说明可合理推断的元素改动，其余保持不变。\n输出格式：{"edits":[{"target":1,"changes":[{"kind":"style","key":"font-size","value":"20px"}]}]}';
           const usr = `这是页面完整 HTML（用于理解上下文，请勿整体重写）：\n\`\`\`html\n${clean.slice(0, 120000)}\n\`\`\`\n\n整体调整说明：${globalNote || '（无，见每条标注要求）'}\n\n带编号的标注（target 即编号）：\n${annoLines}\n\n请依据每条标注的要求，输出 JSON 修改方案。`;
-          const aiUrl = state.ai.baseUrl.replace(/\/+$/, '') + '/chat/completions';
+          const aiUrl = aiEndpoint(state.ai.baseUrl);
           const aiBody = JSON.stringify({ model: state.ai.model, temperature: 0.2, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
           const aiHeaders = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.ai.key };
           let resp;
           try {
             resp = await fetch(aiUrl, { method: 'POST', headers: aiHeaders, body: aiBody });
           } catch (error) {
-            throw new Error('请求未能发出（' + (error && error.message ? error.message : 'network') + '）。当前运行环境可能拦截对外请求（内置预览、代理或浏览器插件常见）：请用独立浏览器打开本页重试，并检查设置里的 Base URL 与网络。');
+            throw new Error(describeAiNetworkFailure(error, state.ai.baseUrl));
           }
           if (!resp.ok) {
             const detail = await resp.text().catch(() => '');
-            throw new Error('接口返回 ' + resp.status + (detail ? '：' + detail.slice(0, 200) : ''));
+            throw new Error(describeAiHttpStatus(resp.status, detail));
           }
           const data = await resp.json();
           const content = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
@@ -4666,16 +4786,16 @@
           const ctx = `选中元素：<${info.tag}${info.attrs && info.attrs.id ? ' id="' + info.attrs.id + '"' : ''}${info.attrs && info.attrs.class ? ' class="' + info.attrs.class + '"' : ''}>\n当前内联/计算样式：${styleStr || '（无）'}\n当前文本：${(info.text || '').slice(0, 120) || '（无）'}\n父级：<${info.parentTag || 'body'}>`;
           const sys = '你是一名资深网页视觉设计助手。用户在可视化 HTML 编辑器里选中了一个元素，希望你给出可一键应用的、具体且克制的样式改进建议（间距、配色、圆角、字号、对齐、阴影等）。只输出 JSON，不要解释、不要 Markdown 围栏。\n规则：\n1. 每条建议含 label（中文，简短说明效果，如“更宽松的卡片内边距”）和 changes（1-3 条 CSS 修改）。\n2. changes 里 kind 固定为 "style"，key 为标准 CSS 属性名，value 为合法取值，如 {"kind":"style","key":"padding","value":"28px"}。\n3. 建议要基于当前上下文、彼此独立、可直接应用，最多 5 条，按推荐度排序。\n4. 不要改动 DOM 结构或文本，只给样式。\n输出格式：{"suggestions":[{"label":"...","changes":[{"kind":"style","key":"padding","value":"28px"}]}]}';
           const usr = `这是页面完整 HTML（用于理解风格，请勿整体重写）：\n\`\`\`html\n${clean.slice(0, 120000)}\n\`\`\`\n\n${ctx}\n\n请针对这个选中元素给出 JSON 建议。`;
-          const aiUrl = state.ai.baseUrl.replace(/\/+$/, '') + '/chat/completions';
+          const aiUrl = aiEndpoint(state.ai.baseUrl);
           const aiBody = JSON.stringify({ model: state.ai.model, temperature: 0.4, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
           const aiHeaders = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.ai.key };
           let resp;
           try {
             resp = await fetch(aiUrl, { method: 'POST', headers: aiHeaders, body: aiBody });
           } catch (error) {
-            throw new Error('请求未能发出（' + (error && error.message ? error.message : 'network') + '）。当前运行环境可能拦截对外请求（内置预览、代理或浏览器插件常见）：请用独立浏览器打开本页重试，并检查设置里的 Base URL 与网络。');
+            throw new Error(describeAiNetworkFailure(error, state.ai.baseUrl));
           }
-          if (!resp.ok) { const detail = await resp.text().catch(() => ''); throw new Error('接口返回 ' + resp.status + (detail ? '：' + detail.slice(0, 200) : '')); }
+          if (!resp.ok) { const detail = await resp.text().catch(() => ''); throw new Error(describeAiHttpStatus(resp.status, detail)); }
           const data = await resp.json();
           const content = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
           const parsed = parseAiJson(content);
@@ -4735,6 +4855,7 @@
       els.aiSettingsBtn.addEventListener('click', () => openAiSettings(true));
       els.aiSettingsClose.addEventListener('click', () => openAiSettings(false));
       els.aiSettingsSave.addEventListener('click', saveAiSettings);
+      els.aiTestBtn.addEventListener('click', testAiConnection);
       els.aiInstruction.addEventListener('input', updateAiRunButton);
       const aiCancelBtn = els.aiSettingsModal.querySelector('.ai-cancel');
       if (aiCancelBtn) aiCancelBtn.addEventListener('click', () => openAiSettings(false));

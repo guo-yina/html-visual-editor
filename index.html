@@ -40,6 +40,8 @@
       --source-surface: color-mix(in srgb, var(--seed-surface) 76%, var(--seed-bg));
       --status-surface: color-mix(in srgb, var(--seed-surface) 62%, var(--seed-bg));
       --paper: rgb(255 255 255);
+      --ai-grad-a: rgb(109 92 255);
+      --ai-grad-b: rgb(34 211 238);
       --loading-ink: rgb(51 65 85);
       --loading-line: rgb(214 223 220);
       --source-fg: var(--seed-fg);
@@ -137,6 +139,17 @@
     .tool-btn:disabled { opacity: .35; cursor: not-allowed; }
     .tool-btn.primary { color: var(--ink-on-primary); background: var(--seed-primary); border-color: color-mix(in srgb, var(--seed-primary) 80%, white); font-weight: 650; }
     .tool-btn.primary:hover { background: color-mix(in srgb, var(--seed-primary) 84%, white); color: var(--ink-on-primary); }
+    .tool-btn.ai {
+      color: var(--paper); border-color: transparent; font-weight: 650;
+      background: linear-gradient(120deg, color-mix(in srgb, var(--seed-primary) 26%, var(--ai-grad-a)), var(--ai-grad-b) 55%, color-mix(in srgb, var(--seed-primary) 62%, var(--ai-grad-b)));
+      background-size: 220% 220%; background-position: 0% 50%;
+      animation: ai-sheen 6s ease-in-out infinite;
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--ai-grad-a) 45%, transparent), 0 2px 14px color-mix(in srgb, var(--ai-grad-a) 35%, transparent);
+    }
+    .tool-btn.ai:hover { color: var(--paper); background-position: 100% 50%; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ai-grad-a) 60%, transparent), 0 4px 20px color-mix(in srgb, var(--ai-grad-b) 45%, transparent); }
+    .tool-btn.ai[aria-pressed="true"] { color: var(--paper); background: linear-gradient(120deg, var(--ai-grad-a), var(--ai-grad-b) 60%, color-mix(in srgb, var(--seed-primary) 62%, var(--ai-grad-b))); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ai-grad-b) 55%, transparent), 0 4px 22px color-mix(in srgb, var(--ai-grad-a) 50%, transparent); }
+    @keyframes ai-sheen { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+    @media (prefers-reduced-motion: reduce) { .tool-btn.ai { animation: none; } }
     .tool-icon { width: calc(14px * var(--seed-type-scale)); height: calc(14px * var(--seed-type-scale)); display: inline-grid; place-items: center; font: 700 calc(11px * var(--seed-type-scale))/1 var(--font-mono); }
     .tool-icon svg, .icon-svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .icon-only-svg { width: 14px; height: 14px; display: block; }
@@ -768,7 +781,7 @@
     <header class="topbar" data-component="toolbar" data-od-id="main-toolbar" aria-label="编辑器工具栏">
       <div class="brand" aria-label="HTML Edit HTML 编辑器">
         <div class="brand-mark">HE</div>
-        <div><div>HTML Edit</div><div class="brand-sub">Visual HTML</div></div>
+        <div><div>HTML Edit</div><div class="brand-sub">可视化编辑器</div></div>
       </div>
       <div class="tool-group" aria-label="文件操作">
         <button class="tool-btn" id="openBtn" type="button" title="打开 HTML 文件"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5h6l2 2h10v10H3z"/><path d="M3 7.5V5h7l2 2.5"/></svg></span><span class="tool-label">打开</span></button>
@@ -776,16 +789,18 @@
         <button class="tool-btn" id="saveAsBtn" type="button" title="另存为"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7M15 13v6M12 16h6"/></svg></span><span class="tool-label">另存为</span></button>
       </div>
       <div class="tool-sep"></div>
+      <button class="tool-btn" id="selectToolBtn" type="button" aria-pressed="false" title="箭头框选：开启后在画布上拖拽，框住多个组件一起选中、一起移动"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></span><span class="tool-label">箭头</span></button>
+      <div class="tool-sep"></div>
       <div class="tool-group" aria-label="历史操作">
         <button class="tool-btn" id="undoBtn" type="button" title="撤销（Cmd/Ctrl+Z）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/></svg></span><span class="tool-label">撤销</span></button>
         <button class="tool-btn" id="redoBtn" type="button" title="重做（Cmd/Ctrl+Shift+Z 或 Cmd/Ctrl+Y）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5"/><path d="M19 12h-8a6 6 0 0 0-6 6"/></svg></span><span class="tool-label">重做</span></button>
       </div>
       <div class="tool-sep"></div>
       <div class="tool-group" aria-label="元素操作">
-        <button class="tool-btn" id="duplicateBtn" type="button" title="复制选中元素"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></svg></span><span class="tool-label">复制</span></button>
-        <button class="tool-btn" id="deleteBtn" type="button" title="删除选中元素"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></span><span class="tool-label">删除</span></button>
-        <button class="tool-btn" id="moveUpBtn" type="button" title="上移选中元素"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6-6 6 6M12 4v16"/></svg></span><span class="tool-label">上移</span></button>
-        <button class="tool-btn" id="moveDownBtn" type="button" title="下移选中元素"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6 6 6-6M12 20V4"/></svg></span><span class="tool-label">下移</span></button>
+        <button class="tool-btn" id="duplicateBtn" type="button" title="复制选中元素（Cmd/Ctrl+C）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></svg></span><span class="tool-label">复制</span></button>
+        <button class="tool-btn" id="deleteBtn" type="button" title="删除选中元素（Delete / Backspace）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></span><span class="tool-label">删除</span></button>
+        <button class="tool-btn" id="moveUpBtn" type="button" title="上移选中元素（Cmd/Ctrl+↑）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6-6 6 6M12 4v16"/></svg></span><span class="tool-label">上移</span></button>
+        <button class="tool-btn" id="moveDownBtn" type="button" title="下移选中元素（Cmd/Ctrl+↓）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6 6 6-6M12 20V4"/></svg></span><span class="tool-label">下移</span></button>
         <button class="tool-btn" id="painterBtn" type="button" aria-pressed="false" title="格式刷：吸取选中元素的全部样式，再点击目标元素应用（Esc 取消）"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h13v6H4zM17 7h3v5h-8v3M12 15v5"/></svg></span><span class="tool-label">格式刷</span></button>
       </div>
       <div class="tool-spacer"></div>
@@ -796,9 +811,8 @@
       </div>
       <div class="tool-sep"></div>
       <button class="tool-btn" id="sourceToggleBtn" type="button" aria-pressed="false" title="查看完整源码"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-5 6 5 6M16 6l5 6-5 6M14 4l-4 16"/></svg></span><span class="tool-label">源码</span></button>
-      <button class="tool-btn" id="selectToolBtn" type="button" aria-pressed="false" title="箭头框选：开启后在画布上拖拽，框住多个组件一起选中、一起移动"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></span><span class="tool-label">箭头</span></button>
       <button class="tool-btn" id="editModeBtn" type="button" aria-pressed="true" title="退出或恢复画布编辑"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.5-1 10-10-3.5-3.5-10 10zM14 6.5 17.5 10M4 20l1-4.5"/></svg></span><span class="tool-label">编辑中</span></button>
-      <button class="tool-btn" id="aiBtn" type="button" aria-pressed="false" title="AI 标注调整：画圈写备注，让千问帮你改"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.3 4.2L17 9l-3.7 1.8L12 15l-1.3-4.2L7 9l3.7-1.8zM18.5 14l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7zM5 13l.8 2.5 2.2.5-2.2.8L5 19l-.8-2.2L2 16l2.2-.5z"/></svg></span><span class="tool-label">AI</span></button>
+      <button class="tool-btn ai" id="aiBtn" type="button" aria-pressed="false" title="AI 标注调整：画圈写备注，让千问帮你改"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.3 4.2L17 9l-3.7 1.8L12 15l-1.3-4.2L7 9l3.7-1.8zM18.5 14l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7zM5 13l.8 2.5 2.2.5-2.2.8L5 19l-.8-2.2L2 16l2.2-.5z"/></svg></span><span class="tool-label">AI</span></button>
       <button class="tool-btn" id="fullscreenBtn" type="button" aria-pressed="false" title="全屏画布"><span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/></svg></span><span class="tool-label">全屏</span></button>
     </header>
 
@@ -1214,7 +1228,7 @@
         if (type === 'tree') return validateTree(payload.nodes) && validString(payload.selectedId || '', 80);
         if (type === 'contextMenu') return Number.isFinite(payload.x) && Number.isFinite(payload.y) && typeof payload.hasTarget === 'boolean';
         if (type === 'copiedHtml') return validString(payload.html, 500000);
-        if (type === 'shortcut') return ['copy','paste','duplicate','help','delete','escape'].includes(payload.action);
+        if (type === 'shortcut') return ['copy','paste','duplicate','help','delete','escape','moveUp','moveDown'].includes(payload.action);
         if (type === 'viewState') return Number.isFinite(payload.zoom) && payload.zoom >= 0.1 && payload.zoom <= 5 && Number.isFinite(payload.scrollX) && Number.isFinite(payload.scrollY) && Number.isFinite(payload.maxX) && Number.isFinite(payload.maxY) && Number.isFinite(payload.viewportWidth) && Number.isFinite(payload.viewportHeight);
         return false;
       }
@@ -2970,6 +2984,8 @@
             else if (mod && key === '/') action = 'help';
             else if (!mod && (event.key === '?' || (event.key === '/' && event.shiftKey))) action = 'help';
             else if (!mod && (event.key === 'Delete' || event.key === 'Backspace')) action = 'delete';
+            else if (mod && event.key === 'ArrowUp') action = 'moveUp';
+            else if (mod && event.key === 'ArrowDown') action = 'moveDown';
             if (action) {
               event.preventDefault();
               event.stopPropagation();
@@ -2986,7 +3002,7 @@
             }
             return;
           }
-          if (!editEnabled || activeEdit || typing) return;
+          if (!editEnabled || activeEdit || typing || mod) return;
           const targets = selectedAll();
           if (!targets.length) return;
           const map = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -3487,6 +3503,8 @@
         else if (action === 'duplicate') { if (state.selected) postToFrame('duplicateOffset', { dx: 12, dy: 12 }); }
         else if (action === 'help') openShortcutModal(true);
         else if (action === 'delete') { if (state.selected) postToFrame('delete', {}); }
+        else if (action === 'moveUp') selectionAction('moveUp');
+        else if (action === 'moveDown') selectionAction('moveDown');
         else if (action === 'escape') {
           if (!els.ctxMenu.hidden) closeContextMenu();
           if (!els.shortcutModal.hidden) openShortcutModal(false);
@@ -3514,6 +3532,8 @@
         { keys: '⌘ / Ctrl + V', desc: '粘贴元素' },
         { keys: '⌘ / Ctrl + D', desc: '复制副本（偏移）' },
         { keys: 'Delete / Backspace', desc: '删除选中元素' },
+        { keys: '⌘ / Ctrl + ↑', desc: '上移一层' },
+        { keys: '⌘ / Ctrl + ↓', desc: '下移一层' },
         { keys: '方向键', desc: '微移 1px' },
         { keys: '⇧ + 方向键', desc: '微移 10px' },
         { title: '视图' },
@@ -4892,6 +4912,8 @@
         else if (!isTypingTarget() && key === 'c' && !event.shiftKey && !event.altKey) { event.preventDefault(); if (state.selected) postToFrame('copy', {}); }
         else if (!isTypingTarget() && key === 'v' && !event.shiftKey && !event.altKey) { event.preventDefault(); if (state.clipboard) postToFrame('paste', { html: state.clipboard }); else toast('剪贴板为空，请先复制元素', 'warn'); }
         else if (!isTypingTarget() && key === 'd' && !event.shiftKey && !event.altKey) { event.preventDefault(); if (state.selected) postToFrame('duplicateOffset', { dx: 12, dy: 12 }); }
+        else if (!isTypingTarget() && event.key === 'ArrowUp') { event.preventDefault(); selectionAction('moveUp'); }
+        else if (!isTypingTarget() && event.key === 'ArrowDown') { event.preventDefault(); selectionAction('moveDown'); }
       });
       document.addEventListener('keydown', event => {
         if (event.metaKey || event.ctrlKey || event.altKey) return;

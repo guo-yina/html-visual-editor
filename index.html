@@ -386,6 +386,35 @@
     .text-toolbar .tt-size-input { min-width: 48px; }
     .text-toolbar .tt-lh-input { min-width: 44px; }
 
+    /* Font size ±0.5 stepper: minus | input | plus inside one bordered pill */
+    .text-toolbar .tt-size-wrap {
+      display: inline-flex; align-items: center;
+      height: 28px; flex: none; overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-2);
+      transition: border-color .12s;
+    }
+    .text-toolbar .tt-size-wrap:hover { border-color: var(--line-strong); }
+    .text-toolbar .tt-size-wrap:focus-within { border-color: var(--seed-primary); }
+    .text-toolbar .tt-size-step {
+      width: 22px; height: 100%; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: none; background: transparent;
+      color: var(--muted); cursor: pointer;
+      font-size: calc(15px * var(--seed-type-scale));
+      line-height: 1; user-select: none;
+      transition: background .12s, color .12s;
+    }
+    .text-toolbar .tt-size-step:hover { background: var(--surface-3); color: var(--seed-fg); }
+    .text-toolbar .tt-size-step:active { background: color-mix(in srgb, var(--seed-primary) 22%, transparent); color: var(--seed-primary); }
+    .text-toolbar .tt-size-wrap .tt-size-input {
+      border: none; background: transparent; height: 100%;
+      min-width: 0; border-radius: 0; padding: 0 2px;
+    }
+    .text-toolbar .tt-size-wrap .tt-size-input:hover,
+    .text-toolbar .tt-size-wrap .tt-size-input:focus { border: none; }
+
     /* Alignment CSS-drawn icons */
     .tt-align-icon { display: flex; flex-direction: column; gap: 2.5px; align-items: flex-start; }
     .tt-align-icon i {
@@ -845,8 +874,12 @@
         <option value="h6">标题 6</option>
         <option value="p">段落</option>
       </select>
-      <!-- Font size -->
-      <input class="tt-size-input" id="ttSize" type="text" value="16" title="字号（px）" placeholder="字号">
+      <!-- Font size (±0.5px stepper) -->
+      <span class="tt-size-wrap" title="字号（px）加减号，每点一次调整 0.5">
+        <button class="tt-size-step" id="ttSizeDown" type="button" tabindex="-1" aria-label="减小字号 0.5px">−</button>
+        <input class="tt-size-input" id="ttSize" type="text" value="16" placeholder="字号">
+        <button class="tt-size-step" id="ttSizeUp" type="button" tabindex="-1" aria-label="增大字号 0.5px">+</button>
+      </span>
       <span class="tt-sep"></span>
       <!-- Bold / Italic / Underline / Strikethrough -->
       <button class="tt-btn tt-bold" id="ttBold" type="button" aria-pressed="false" title="加粗">B</button>
@@ -1059,9 +1092,40 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="restoreModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreModalTitle">
+      <div class="modal-head">
+        <span class="modal-title" id="restoreModalTitle">检测到上次未保存的内容</span>
+      </div>
+      <div class="modal-body">
+        <p class="modal-note">上次编辑没有保存就关闭了页面。我们为你保留了一份草稿，可以恢复继续编辑，或丢弃从示例文档重新开始。</p>
+        <p class="modal-note">草稿文件：<strong id="restoreFile">editor.html</strong> · 保存于 <strong id="restoreTime">—</strong></p>
+        <p class="modal-note">出于安全考虑，草稿只包含文档内容，绝不包含任何 API Key。</p>
+      </div>
+      <div class="modal-foot">
+        <button class="ai-secondary" id="discardBtn" type="button">丢弃</button>
+        <button class="ai-primary" id="restoreBtn" type="button">恢复草稿</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (() => {
       'use strict';
+
+      // P0-3 code-level defense: never collect the DashScope API Key on a plaintext page.
+      // If served over http on a real host, upgrade to https immediately (before any UI is
+      // built). Complements GitHub Pages "Enforce HTTPS"; skipped for file:// and local dev.
+      (() => {
+        try {
+          const loc = window.location;
+          const host = loc.hostname;
+          const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '' || loc.protocol === 'file:';
+          if (loc.protocol === 'http:' && !isLocal) {
+            loc.replace('https://' + loc.host + loc.pathname + loc.search + loc.hash);
+          }
+        } catch (e) { /* never block startup on a redirect failure */ }
+      })();
 
       const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1124,8 +1188,9 @@
         'aiBtn','aiDock','aiModelStatus','aiSettingsBtn','aiCloseBtn','aiHint','aiAnnoList','aiInstruction','aiClearBtn',
         'aiRunBtn','aiSettingsModal','aiKeyInput','aiModelSelect','aiBaseUrlInput','aiRememberKey','aiSettingsSave','aiSettingsClose','aiTestBtn','aiTestStatus',
         'zoomBar','zoomOutBtn','zoomInBtn','zoomVal','zoomFitBtn','zoomResetBtn','zoomPresets',
-        'textToolbar','ttFont','ttSize','ttBold','ttItalic','ttUnderline','ttStrike','ttColor','ttColorBar','ttAlignLeft','ttAlignCenter','ttAlignRight','ttLineHeight','ttHeading',
-        'ctxMenu','shortcutModal','shortcutGrid','shortcutClose','layerTree','layerMeta','railTabComponents','railTabLayers','railPaneComponents','railPaneLayers','painterBtn','aiSuggestBtn','aiSuggestPanel'
+        'textToolbar','ttFont','ttSize','ttSizeDown','ttSizeUp','ttBold','ttItalic','ttUnderline','ttStrike','ttColor','ttColorBar','ttAlignLeft','ttAlignCenter','ttAlignRight','ttLineHeight','ttHeading',
+        'ctxMenu','shortcutModal','shortcutGrid','shortcutClose','layerTree','layerMeta','railTabComponents','railTabLayers','railPaneComponents','railPaneLayers','painterBtn','aiSuggestBtn','aiSuggestPanel',
+        'restoreModal','restoreFile','restoreTime','restoreBtn','discardBtn'
       ].map(id => [id, document.getElementById(id)]));
 
       const state = {
@@ -1137,6 +1202,7 @@
         history: [],
         historyIndex: -1,
         savedHtml: '',
+        originalRaw: null,
         dirty: true,
         savedAt: null,
         selected: null,
@@ -1374,6 +1440,16 @@
           const el = node instanceof Element ? node : node && node.parentElement;
           if (!el) return null;
           const candidate = el.closest('body *');
+          if (!candidate) return null;
+          // Inline SVG icons (path/g/circle/rect… or the <svg> wrapper itself) have no
+          // resizable CSS box, so the corner handles can only grab dead air. Treat the whole
+          // icon as part of its container: bubble up to the nearest HTML ancestor the user can
+          // actually move/resize. Fall back to the raw candidate if there is no eligible ancestor.
+          if (candidate.namespaceURI === 'http://www.w3.org/2000/svg') {
+            let up = candidate.parentElement;
+            while (up && up.namespaceURI === 'http://www.w3.org/2000/svg') up = up.parentElement;
+            if (up && isEligible(up)) return up;
+          }
           return isEligible(candidate) ? candidate : null;
         }
 
@@ -2241,6 +2317,47 @@
 
         moveGrip.addEventListener('pointerdown', event => beginGesture(event, 'move'), true);
         resizeHandles.forEach(handle => handle.addEventListener('pointerdown', event => beginGesture(event, 'resize', handle.dataset.dir), true));
+
+        /* Drag anywhere inside the selected element to move it — no need to hit the ✥ grip. */
+        let pendingBodyDrag = null;
+        function cancelPendingBodyDrag() {
+          if (!pendingBodyDrag) return;
+          window.removeEventListener('pointermove', onPendingBodyMove, true);
+          window.removeEventListener('pointerup', onPendingBodyUp, true);
+          window.removeEventListener('pointercancel', onPendingBodyUp, true);
+          pendingBodyDrag = null;
+        }
+        function onPendingBodyUp() { cancelPendingBodyDrag(); }
+        function onPendingBodyMove(event) {
+          if (!pendingBodyDrag || gesture) { cancelPendingBodyDrag(); return; }
+          const dx = event.clientX - pendingBodyDrag.x;
+          const dy = event.clientY - pendingBodyDrag.y;
+          if (Math.hypot(dx, dy) < 4) return;
+          const origin = pendingBodyDrag;
+          cancelPendingBodyDrag();
+          suppressClick = true;
+          // beginGesture only wires pointer capture reliably from a pointerdown event, so
+          // hand it the stored pointerdown rather than this pointermove.
+          beginGesture(origin.event, 'move');
+          if (gesture) { gesture.startX = origin.x; gesture.startY = origin.y; }
+        }
+        document.addEventListener('pointerdown', event => {
+          if (!editEnabled || annotateMode || activeEdit || selectTool || gesture) return;
+          if (event.button !== 0 || !selected) return;
+          if (event.target instanceof Element && event.target.closest('[data-__qwe-runtime]')) return;
+          const el = closestEligible(event.target);
+          if (!el) return;
+          const inSelection = selectedAll().some(t => t === el || t.contains(el));
+          if (!inSelection) return;
+          // Suppress the native text-selection drag so every subsequent pointermove is delivered
+          // to our listeners (the ✥ grip relies on the same preventDefault inside beginGesture).
+          event.preventDefault();
+          try { event.target.setPointerCapture && event.target.setPointerCapture(event.pointerId); } catch (e) {}
+          pendingBodyDrag = { x: event.clientX, y: event.clientY, event, el: event.target };
+          window.addEventListener('pointermove', onPendingBodyMove, true);
+          window.addEventListener('pointerup', onPendingBodyUp, true);
+          window.addEventListener('pointercancel', onPendingBodyUp, true);
+        }, true);
 
         function selectedAll() {
           if (multiSelect.length) return multiSelect.filter(el => el && el.isConnected && isEligible(el));
@@ -3181,6 +3298,7 @@
         state.dirty = html !== state.savedHtml;
         updateHistoryButtons();
         updateStatus();
+        scheduleDraftWrite();
         scheduleSourceSync();
       }
 
@@ -3220,7 +3338,9 @@
           els.saveStatus.textContent = state.sourceDirty ? '源码有未应用修改' : '未保存更改';
         } else {
           els.saveDot.className = 'status-dot saved';
-          els.saveStatus.textContent = state.savedAt ? `已保存 ${state.savedAt.toLocaleTimeString('zh-CN', { hour12: false })}` : '已保存';
+          if (state.savedAt) els.saveStatus.textContent = `已保存 ${state.savedAt.toLocaleTimeString('zh-CN', { hour12: false })}`;
+          else if (state.originalRaw === null) els.saveStatus.textContent = '示例文档 · 未改动';
+          else els.saveStatus.textContent = '已保存';
         }
         if (state.multiCount > 1) {
           els.selectionStatus.textContent = `已选 ${state.multiCount} 个元素`;
@@ -3237,8 +3357,9 @@
         const payload = msg.payload;
         if (msg.type === 'ready') {
           els.canvasLoading.classList.remove('visible');
-          if (state.loadMode === 'reset') resetHistory(payload.html, false);
+          if (state.loadMode === 'reset') resetHistory(payload.html, true);
           else if (state.loadMode === 'file') resetHistory(payload.html, true);
+          else if (state.loadMode === 'draft') resetHistory(payload.html, false);
           else state.currentHtml = payload.html;
           if (state.selectedPath) postToFrame('selectPath', { path: state.selectedPath });
           state.loadMode = 'ready';
@@ -4112,9 +4233,140 @@
         }
       }
 
-      function confirmDiscard(context) {
-        return (!state.dirty && !state.sourceDirty) || confirm(`当前文档有未保存更改。${context}会丢失这些更改，是否继续？`);
+      // Single source of truth for "is there real user work at risk of being lost".
+      // The pristine sample and freshly-opened files start with dirty=false, so dirty
+      // is only true once the user has actually changed something (or restored a draft).
+      function hasUnsavedWork() {
+        return Boolean(state.sourceDirty || state.dirty);
       }
+
+      function confirmDiscard(context) {
+        return !hasUnsavedWork() || confirm(`当前文档有未保存更改。${context}会丢失这些更改，是否继续？`);
+      }
+
+      /* ── P0-2 draft persistence (IndexedDB) ──────────
+         Goal: a refresh must not silently destroy unsaved work. We keep the CURRENT
+         document (html + fileName + timestamp) in IndexedDB and, on next startup, offer
+         to restore it. SECURITY: this store holds the document only. The DashScope API
+         Key (state.ai.key) is NEVER written here or to any storage — see loadAiConfig /
+         persistAiConfig, which force remember=false. Everything degrades to a no-op when
+         IndexedDB is unavailable (e.g. file:// origin, private mode, blocked storage) so
+         startup and editing never crash because of persistence. */
+      const DRAFT_DB = 'htmledit-drafts';
+      const DRAFT_STORE = 'drafts';
+      const DRAFT_KEY = 'current';
+      let draftDbPromise = null;
+      let draftWriteTimer = 0;
+
+      function openDraftDb() {
+        if (draftDbPromise) return draftDbPromise;
+        draftDbPromise = new Promise(resolve => {
+          try {
+            if (typeof indexedDB === 'undefined' || !indexedDB) { resolve(null); return; }
+            const req = indexedDB.open(DRAFT_DB, 1);
+            req.onupgradeneeded = () => {
+              const db = req.result;
+              if (!db.objectStoreNames.contains(DRAFT_STORE)) db.createObjectStore(DRAFT_STORE, { keyPath: 'id' });
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+            req.onblocked = () => resolve(null);
+          } catch (e) { resolve(null); }
+        });
+        return draftDbPromise;
+      }
+
+      function idbRun(mode, fn) {
+        return openDraftDb().then(db => new Promise(resolve => {
+          if (!db) { resolve(null); return; }
+          try {
+            const tx = db.transaction(DRAFT_STORE, mode);
+            const store = tx.objectStore(DRAFT_STORE);
+            const out = fn(store);
+            tx.oncomplete = () => resolve(out && out.result !== undefined ? out.result : true);
+            tx.onerror = () => resolve(null);
+            tx.onabort = () => resolve(null);
+          } catch (e) { resolve(null); }
+        })).catch(() => null);
+      }
+
+      function idbGetDraft() { return idbRun('readonly', store => store.get(DRAFT_KEY)); }
+      function idbClearDraft() { return idbRun('readwrite', store => store.delete(DRAFT_KEY)); }
+      function idbPutDraft(record) { return idbRun('readwrite', store => store.put(record)); }
+
+      // Debounced write of the current document. Only persists when there is genuinely
+      // unsaved work, so a pristine sample/opened file never creates a phantom draft.
+      function scheduleDraftWrite() {
+        if (draftWriteTimer) clearTimeout(draftWriteTimer);
+        draftWriteTimer = setTimeout(() => {
+          draftWriteTimer = 0;
+          if (!hasUnsavedWork()) return;
+          const html = state.currentHtml;
+          if (typeof html !== 'string' || !html) return;
+          idbPutDraft({ id: DRAFT_KEY, html, fileName: state.fileName || 'editor.html', updatedAt: Date.now() });
+        }, 800);
+      }
+
+      function clearDraftSoon() {
+        if (draftWriteTimer) { clearTimeout(draftWriteTimer); draftWriteTimer = 0; }
+        idbClearDraft();
+      }
+
+      let restoreReturnFocus = null;
+      function openRestoreModal(open, meta) {
+        if (open && meta) {
+          restoreReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          const when = new Date(meta.updatedAt || Date.now());
+          els.restoreTime.textContent = when.toLocaleString('zh-CN', { hour12: false });
+          els.restoreFile.textContent = meta.fileName || 'editor.html';
+        }
+        els.restoreModal.hidden = !open;
+        els.restoreModal.classList.toggle('open', open);
+        if (open) els.restoreBtn.focus();
+        else if (restoreReturnFocus && restoreReturnFocus.isConnected) {
+          restoreReturnFocus.focus();
+          restoreReturnFocus = null;
+        }
+      }
+
+      // Called once at startup. If a meaningful draft exists (not the pristine sample),
+      // offer to restore it. Closing without choosing keeps the draft for next time —
+      // never destructive by default.
+      let pendingRestoreDraft = null;
+      async function maybeRestoreDraft() {
+        const draft = await idbGetDraft();
+        if (!draft || typeof draft.html !== 'string' || !draft.html) return;
+        if (draft.html === SAMPLE_HTML) { idbClearDraft(); return; }
+        pendingRestoreDraft = draft;
+        openRestoreModal(true, draft);
+      }
+
+      els.restoreBtn.addEventListener('click', () => {
+        const draft = pendingRestoreDraft;
+        pendingRestoreDraft = null;
+        openRestoreModal(false);
+        if (!draft) return;
+        // loadMode 'draft' → ready handler runs resetHistory(html, false): the restored
+        // document is treated as unsaved work, so beforeunload + the draft store keep
+        // protecting it until the user saves.
+        state.fileName = draft.fileName || 'editor.html';
+        state.savedAt = null;
+        state.originalRaw = null;
+        state.sourceDirty = false;
+        loadDocument(draft.html, 'draft');
+        toast('已恢复上次未保存的草稿', 'success');
+      });
+      els.discardBtn.addEventListener('click', () => {
+        pendingRestoreDraft = null;
+        openRestoreModal(false);
+        clearDraftSoon();
+        toast('已丢弃上次草稿');
+      });
+      els.restoreModal.addEventListener('keydown', event => trapModalFocus(event, els.restoreModal));
+      els.restoreModal.addEventListener('click', event => {
+        // Backdrop click = "not now": hide but KEEP the stored draft (non-destructive).
+        if (event.target === els.restoreModal) { pendingRestoreDraft = null; openRestoreModal(false); }
+      });
 
       function openFile() {
         if (!confirmDiscard('打开另一文件')) return;
@@ -4128,8 +4380,10 @@
         state.fileHandle = handle;
         state.savedAt = null;
         state.savedHtml = text;
+        state.originalRaw = text;
         state.dirty = false;
         state.sourceDirty = false;
+        clearDraftSoon();
         loadDocument(text, 'file');
         toast(`已打开 ${state.fileName}`, 'success');
       }
@@ -4177,7 +4431,13 @@
         els.saveAsBtn.disabled = true;
         const previousDirty = state.dirty;
         try {
-          const clean = await getCleanHtml();
+          // Zero-edit fast path: if nothing changed since open/last save, write the
+          // verbatim original bytes back. The browser HTML parser+serializer normalizes
+          // whitespace (e.g. drops the text node between <html> and <head>, reflows the
+          // </body></html> region), so re-serializing an untouched document would dirty a
+          // git working tree with blank hunks. 0 edits must mean 0 diff.
+          const noop = !state.dirty && !state.sourceDirty && typeof state.originalRaw === 'string';
+          const clean = noop ? state.originalRaw : await getCleanHtml();
           let targetHandle = saveAs ? null : state.fileHandle;
           let downloaded = false;
           let downloadedName = '';
@@ -4198,13 +4458,24 @@
             downloadBlob(clean, downloadedName);
             downloaded = true;
           }
-          state.currentHtml = clean;
-          if (state.history[state.historyIndex]) state.history[state.historyIndex].html = clean;
-          state.savedHtml = clean;
+          if (!noop) {
+            // Only the real-edit path moves the in-memory document forward. In the fast
+            // path currentHtml/history/savedHtml must stay in serialized space so dirty
+            // detection and source-panel sync keep comparing like with like.
+            state.currentHtml = clean;
+            if (state.history[state.historyIndex]) state.history[state.historyIndex].html = clean;
+            state.savedHtml = clean;
+          }
+          state.originalRaw = clean;
           state.dirty = false;
           state.savedAt = new Date();
+          clearDraftSoon();
           updateStatus();
-          toast(downloaded ? `已下载 ${downloadedName}；浏览器未直接覆盖原文件。` : `已写回 ${state.fileName}`, 'success');
+          if (noop) {
+            toast(downloaded ? `未做修改，已下载与原始内容逐字节一致的 ${downloadedName}` : `未做修改，已按原始内容写回 ${state.fileName}（0 diff）`, 'success');
+          } else {
+            toast(downloaded ? `已下载 ${downloadedName}；浏览器未直接覆盖原文件。` : `已写回 ${state.fileName}`, 'success');
+          }
         } catch (error) {
           state.dirty = previousDirty;
           updateStatus();
@@ -4394,7 +4665,31 @@
       }
       els.ttSize.addEventListener('input', () => ttAutofit(els.ttSize, 5));
       els.ttSize.addEventListener('change', commitTtSize);
-      els.ttSize.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commitTtSize(); } });
+      els.ttSize.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); commitTtSize(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); stepTtSize(0.5); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); stepTtSize(-0.5); }
+      });
+
+      // Font size stepper: every click nudges the size by ±0.5px on a 0.5 grid.
+      function currentTtSize() {
+        const fromInput = parseFloat(els.ttSize.value);
+        if (!isNaN(fromInput)) return fromInput;
+        const fromStyle = parseFloat((state.selected && state.selected.style && state.selected.style['font-size']) || '');
+        return isNaN(fromStyle) ? 16 : fromStyle;
+      }
+      function stepTtSize(delta) {
+        let next = Math.round((currentTtSize() + delta) * 2) / 2;
+        if (next < 1) next = 1;
+        els.ttSize.value = String(next);
+        ttAutofit(els.ttSize, 5);
+        ttSetProp('font-size', next + 'px');
+      }
+      [[els.ttSizeDown, -0.5], [els.ttSizeUp, 0.5]].forEach(([btn, delta]) => {
+        if (!btn) return;
+        btn.addEventListener('mousedown', e => e.preventDefault());
+        btn.addEventListener('click', () => stepTtSize(delta));
+      });
 
       // Bold toggle
       els.ttBold.addEventListener('click', () => {
@@ -4918,6 +5213,7 @@
       document.addEventListener('keydown', event => {
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (event.key === 'Escape') {
+          if (!els.restoreModal.hidden) { pendingRestoreDraft = null; openRestoreModal(false); return; }
           if (!els.aiSettingsModal.hidden) { openAiSettings(false); return; }
           if (!els.ctxMenu.hidden) { closeContextMenu(); return; }
           if (!els.shortcutModal.hidden) { openShortcutModal(false); return; }
@@ -4940,18 +5236,33 @@
         if (!els.ctxMenu.hidden && !event.target.closest('#ctxMenu')) closeContextMenu();
       }, true);
       window.addEventListener('beforeunload', event => {
-        if (!state.dirty && !state.sourceDirty) return;
+        if (!hasUnsavedWork()) return;
         event.preventDefault();
         event.returnValue = '';
       });
 
       initCodeMirror();
-      resetHistory(SAMPLE_HTML, false);
+      resetHistory(SAMPLE_HTML, true);
       loadDocument(SAMPLE_HTML, 'reset');
       syncEditButton();
       loadAiConfig();
       renderAnnotationList();
       syncPainterUi();
+
+      // Best-effort: if the user edits then closes/reloads within the debounce window,
+      // flush the draft immediately so their work still survives.
+      const flushDraft = () => {
+        if (draftWriteTimer) { clearTimeout(draftWriteTimer); draftWriteTimer = 0; }
+        if (!hasUnsavedWork()) return;
+        const html = state.currentHtml;
+        if (typeof html !== 'string' || !html) return;
+        idbPutDraft({ id: DRAFT_KEY, html, fileName: state.fileName || 'editor.html', updatedAt: Date.now() });
+      };
+      window.addEventListener('pagehide', flushDraft);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
+
+      // P0-2: offer to recover unsaved work from a previous session.
+      maybeRestoreDraft();
     })();
   </script>
 </body>
